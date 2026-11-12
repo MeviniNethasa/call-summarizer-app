@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Call Summarizer</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #eef1f4;
+      --surface: #ffffff;
+      --ink: #16222e;
+      --muted: #5b6b7a;
+      --line: #d5dce3;
+      --accent: #0e6b63;
+      --accent-ink: #ffffff;
+      --accent-soft: #dcefec;
+      --danger: #b3261e;
+      --danger-soft: #fbe9e7;
+      --radius: 10px;
+      --font-body: "Instrument Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+      --font-head: "Bricolage Grotesque", "Instrument Sans", system-ui, sans-serif;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #0f171e;
+        --surface: #16212b;
+        --ink: #e8eef3;
+        --muted: #93a3b2;
+        --line: #2a3947;
+        --accent: #4fc3b6;
+        --accent-ink: #08201d;
+        --accent-soft: #17332f;
+        --danger: #ff8a80;
+        --danger-soft: #3a1b19;
+      }
+    }
+
+    * { box-sizing: border-box; }
+    html { -webkit-text-size-adjust: 100%; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font: 400 16px/1.55 var(--font-body);
+    }
+    h1, h2 { font-family: var(--font-head); margin: 0; letter-spacing: -0.01em; }
+
+    .wrap { max-width: 1180px; margin: 0 auto; padding: 32px 24px 64px; }
+    header { margin-bottom: 28px; }
+    h1 { font-size: clamp(1.8rem, 3vw, 2.4rem); font-weight: 700; }
+    header p { margin: 6px 0 0; color: var(--muted); max-width: 56ch; }
+
+    .grid {
+      display: grid;
+      grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
+      gap: 24px;
+      align-items: start;
+    }
+    @media (max-width: 860px) { .grid { grid-template-columns: 1fr; } }
+
+    .panel {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 20px;
+    }
+    .panel-head {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 12px; margin-bottom: 14px;
+    }
+    h2 { font-size: 1.15rem; font-weight: 600; }
+
+    textarea {
+      width: 100%;
+      min-height: 380px;
+      resize: vertical;
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--bg);
+      color: var(--ink);
+      font: 400 0.95rem/1.6 var(--font-body);
+    }
+    textarea::placeholder { color: var(--muted); }
+
+    .row { display: flex; align-items: center; gap: 12px; margin-top: 14px; flex-wrap: wrap; }
+    .count { margin-left: auto; color: var(--muted); font-size: 0.85rem; }
+
+    button {
+      font: 600 0.95rem var(--font-body);
+      border-radius: 8px;
+      padding: 10px 18px;
+      border: 1px solid transparent;
+      cursor: pointer;
+      transition: background-color .15s, border-color .15s, opacity .15s;
+    }
+    .primary { background: var(--accent); color: var(--accent-ink); }
+    .primary:hover:not(:disabled) { opacity: .9; }
+    .primary:disabled { opacity: .5; cursor: not-allowed; }
+    .ghost { background: transparent; color: var(--ink); border-color: var(--line); padding: 8px 14px; font-size: 0.88rem; }
+    .ghost:hover { border-color: var(--accent); }
+    button:focus-visible, textarea:focus-visible, input:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+    }
+
+    .spinner {
+      display: inline-block; width: 14px; height: 14px; margin-right: 8px;
+      border: 2px solid currentColor; border-right-color: transparent;
+      border-radius: 50%; vertical-align: -2px;
+      animation: spin .7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    @media (prefers-reduced-motion: reduce) { .spinner { animation-duration: 2s; } }
+
+    .empty { color: var(--muted); padding: 40px 8px; text-align: center; }
+    .error {
+      background: var(--danger-soft); color: var(--danger);
+      border-radius: 8px; padding: 12px 14px; font-weight: 500;
+    }
+
+    .section + .section { margin-top: 26px; padding-top: 22px; border-top: 1px solid var(--line); }
+    .section h3 {
+      font: 600 0.95rem var(--font-head);
+      margin: 0 0 10px;
+      color: var(--accent);
+    }
+    .summary { margin: 0; font-size: 1.05rem; line-height: 1.65; }
+
+    ul.points { margin: 0; padding-left: 20px; }
+    ul.points li { margin-bottom: 8px; padding-left: 4px; }
+    ul.points li::marker { color: var(--accent); }
+
+    ul.actions { list-style: none; margin: 0; padding: 0; }
+    .action {
+      display: grid; grid-template-columns: auto 1fr; gap: 12px;
+      padding: 12px 0; border-bottom: 1px solid var(--line);
+    }
+    .action:last-child { border-bottom: 0; }
+    .action input { width: 18px; height: 18px; margin-top: 3px; accent-color: var(--accent); cursor: pointer; }
+    .action label { cursor: pointer; display: block; }
+    .task { display: block; font-weight: 500; }
+    .meta { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
+    .chip {
+      font-size: 0.8rem; padding: 2px 10px; border-radius: 999px;
+      background: var(--accent-soft); color: var(--accent);
+    }
+    .chip.due { background: transparent; border: 1px solid var(--line); color: var(--muted); }
+    .action input:checked + label .task { text-decoration: line-through; color: var(--muted); }
+    .none { color: var(--muted); margin: 0; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h1>Call Summarizer</h1>
+      <p>Paste a call transcript and get a short summary, the key points, and who needs to do what.</p>
+    </header>
+
+    <main class="grid">
+      <section class="panel" aria-labelledby="in-title">
+        <div class="panel-head">
+          <h2 id="in-title">Transcript</h2>
+          <button class="ghost" id="sample" type="button">Use sample</button>
+        </div>
+        <textarea id="transcript" placeholder="Paste the call transcript here…" aria-label="Call transcript"></textarea>
+        <div class="row">
+          <button class="primary" id="go" type="button" disabled>Summarize call</button>
+          <button class="ghost" id="clear" type="button">Clear</button>
+          <span class="count" id="count">0 characters</span>
+        </div>
+      </section>
+
+      <section class="panel" aria-labelledby="out-title" aria-live="polite">
+        <div class="panel-head">
+          <h2 id="out-title">Summary</h2>
+          <button class="ghost" id="copy" type="button" hidden>Copy summary</button>
+        </div>
+        <div id="output">
+          <p class="empty">Your summary will appear here.</p>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const transcript = $("transcript");
+    const go = $("go");
+    const output = $("output");
+    const copyBtn = $("copy");
+    let lastResult = null;
+
+    const SAMPLE = `Maya (Product): Thanks everyone for joining. Main goal today is to lock the launch plan for the mobile app.
+Dev (Engineering): We're on track for the beta build, but the payments integration slipped. I'd say we need until the 22nd to finish it.
+Maya: That pushes the public launch to the first week of December. Priya, can marketing live with that?
+Priya (Marketing): Yes, as long as we have final screenshots by the 25th. I'll also need the press kit copy approved.
+Maya: I'll review and approve the press kit by Friday. Dev, please send Priya the final screenshots once payments are merged.
+Sam (Support): We should also prepare help-center articles. I can draft them, but I need the feature list first.
+Maya: I'll send Sam the feature list tomorrow. Let's reconvene next Thursday to confirm we're still on schedule.`;
+
+    function esc(s) {
+      const d = document.createElement("div");
+      d.textContent = s;
+      return d.innerHTML;
+    }
+
+    function updateState() {
+      const n = transcript.value.trim().length;
+      $("count").textContent = transcript.value.length.toLocaleString() + " characters";
+      go.disabled = n === 0;
+    }
+
+    function render(r) {
+      const points = r.keyPoints.length
+        ? `<ul class="points">${r.keyPoints.map((p) => `<li>${esc(p)}</li>`).join("")}</ul>`
+        : `<p class="none">No key points found.</p>`;
+
+      const actions = r.actionItems.length
+        ? `<ul class="actions">${r.actionItems.map((a, i) => `
+            <li class="action">
+              <input type="checkbox" id="a${i}">
+              <label for="a${i}">
+                <span class="task">${esc(a.task)}</span>
+                <span class="meta">
+                  <span class="chip">${esc(a.owner)}</span>
+                  <span class="chip due">${esc(a.due)}</span>
+                </span>
+              </label>
+            </li>`).join("")}</ul>`
+        : `<p class="none">No action items found.</p>`;
+
+      output.innerHTML = `
+        <div class="section"><h3>Executive summary</h3><p class="summary">${esc(r.executiveSummary)}</p></div>
+        <div class="section"><h3>Key points</h3>${points}</div>
+        <div class="section"><h3>Action items</h3>${actions}</div>`;
+    }
+
+    function toText(r) {
+      return [
+        "EXECUTIVE SUMMARY", r.executiveSummary, "",
+        "KEY POINTS", ...r.keyPoints.map((p) => `- ${p}`), "",
+        "ACTION ITEMS", ...r.actionItems.map((a) => `- [ ] ${a.task} (Owner: ${a.owner}; Due: ${a.due})`),
+      ].join("\n");
+    }
+
+    async function summarize() {
+      go.disabled = true;
+      go.innerHTML = '<span class="spinner"></span>Summarizing…';
+      copyBtn.hidden = true;
+      output.innerHTML = '<p class="empty">Reading the transcript…</p>';
+
+      try {
+        const res = await fetch("/api/summarize", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ transcript: transcript.value }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || "Request failed.");
+        lastResult = data;
+        render(data);
+        copyBtn.hidden = false;
+      } catch (err) {
+        output.innerHTML = `<div class="error" role="alert">${esc(err.message)}</div>`;
+      } finally {
+        go.textContent = "Summarize call";
+        updateState();
+      }
+    }
+
+    go.addEventListener("click", summarize);
+    transcript.addEventListener("input", updateState);
+    transcript.addEventListener("keydown", (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "Enter" && !go.disabled) summarize();
+    });
+    $("sample").addEventListener("click", () => { transcript.value = SAMPLE; updateState(); });
+    $("clear").addEventListener("click", () => {
+      transcript.value = "";
+      output.innerHTML = '<p class="empty">Your summary will appear here.</p>';
+      copyBtn.hidden = true;
+      updateState();
+      transcript.focus();
+    });
+    copyBtn.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(toText(lastResult));
+        copyBtn.textContent = "Copied";
+      } catch {
+        copyBtn.textContent = "Copy failed";
+      }
+      setTimeout(() => (copyBtn.textContent = "Copy summary"), 1500);
+    });
+
+    updateState();
+  </script>
+</body>
+</html>
