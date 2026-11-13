@@ -116,6 +116,29 @@
     @keyframes spin { to { transform: rotate(360deg); } }
     @media (prefers-reduced-motion: reduce) { .spinner { animation-duration: 2s; } }
 
+    .status { margin: 10px 0 0; font-size: 0.88rem; color: var(--muted); min-height: 1.3em; }
+    .status.err { color: var(--danger); font-weight: 500; }
+    .file-chip {
+      display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+      margin-top: 12px; padding: 10px 12px;
+      border: 1px solid var(--line); border-radius: 8px; background: var(--bg);
+    }
+    .file-chip[hidden] { display: none; }
+    .file-name { font-weight: 600; font-size: 0.9rem; word-break: break-all; }
+    .file-size { color: var(--muted); font-size: 0.85rem; }
+    .file-state {
+      margin-left: auto; font-size: 0.8rem; font-weight: 600;
+      padding: 2px 10px; border-radius: 999px;
+      background: var(--accent-soft); color: var(--accent);
+    }
+    .file-state.err { background: var(--danger-soft); color: var(--danger); }
+    .file-chip audio { width: 100%; height: 34px; }
+    .head-actions { display: flex; gap: 8px; }
+    .visually-hidden {
+      position: absolute; width: 1px; height: 1px; overflow: hidden;
+      clip: rect(0 0 0 0); white-space: nowrap;
+    }
+
     .empty { color: var(--muted); padding: 40px 8px; text-align: center; }
     .error {
       background: var(--danger-soft); color: var(--danger);
@@ -164,9 +187,20 @@
       <section class="panel" aria-labelledby="in-title">
         <div class="panel-head">
           <h2 id="in-title">Transcript</h2>
-          <button class="ghost" id="sample" type="button">Use sample</button>
+          <div class="head-actions">
+            <button class="ghost" id="upload" type="button">Upload audio</button>
+            <button class="ghost" id="sample" type="button">Use sample</button>
+          </div>
+          <input class="visually-hidden" id="audio" type="file" accept=".mp3,.wav,.m4a,.webm,audio/*" tabindex="-1" aria-label="Upload an audio file">
         </div>
         <textarea id="transcript" placeholder="Paste the call transcript here…" aria-label="Call transcript"></textarea>
+        <div class="file-chip" id="fileChip" hidden>
+          <span class="file-name" id="fileName"></span>
+          <span class="file-size" id="fileSize"></span>
+          <span class="file-state" id="fileState"></span>
+          <audio id="player" controls></audio>
+        </div>
+        <p class="status" id="status" role="status"></p>
         <div class="row">
           <button class="primary" id="go" type="button" disabled>Summarize call</button>
           <button class="ghost" id="clear" type="button">Clear</button>
@@ -277,9 +311,12 @@ Maya: I'll send Sam the feature list tomorrow. Let's reconvene next Thursday to 
     transcript.addEventListener("keydown", (e) => {
       if ((e.metaKey || e.ctrlKey) && e.key === "Enter" && !go.disabled) summarize();
     });
-    $("sample").addEventListener("click", () => { transcript.value = SAMPLE; updateState(); });
+    $("sample").addEventListener("click", () => { transcript.value = SAMPLE; setStatus(""); updateState(); });
     $("clear").addEventListener("click", () => {
       transcript.value = "";
+      setStatus("");
+      chip.hidden = true;
+      player.removeAttribute("src");
       output.innerHTML = '<p class="empty">Your summary will appear here.</p>';
       copyBtn.hidden = true;
       updateState();
@@ -293,6 +330,96 @@ Maya: I'll send Sam the feature list tomorrow. Let's reconvene next Thursday to 
         copyBtn.textContent = "Copy failed";
       }
       setTimeout(() => (copyBtn.textContent = "Copy summary"), 1500);
+    });
+
+    // ---- Audio upload -> transcript ----
+    const audioInput = $("audio");
+    const uploadBtn = $("upload");
+    const statusEl = $("status");
+    const chip = $("fileChip");
+    const player = $("player");
+    const AUDIO_EXTS = [".mp3", ".wav", ".m4a", ".webm"];
+    const MAX_AUDIO_MB = 25;
+    let audioUrl = null;
+
+    function setStatus(msg, isError = false) {
+      statusEl.textContent = msg;
+      statusEl.classList.toggle("err", isError);
+    }
+
+    function formatSize(bytes) {
+      return bytes < 1024 * 1024
+        ? Math.max(1, Math.round(bytes / 1024)) + " KB"
+        : (bytes / (1024 * 1024)).toFixed(1) + " MB";
+    }
+
+    // Shows which file is attached and what is happening to it.
+    function showFile(file, state, isError = false) {
+      chip.hidden = false;
+      $("fileName").textContent = file.name;
+      $("fileSize").textContent = formatSize(file.size);
+      const st = $("fileState");
+      st.textContent = state;
+      st.classList.toggle("err", isError);
+    }
+
+    // Turns a failed response into a message that says what to check.
+    function explainFailure(res, data) {
+      if (data && data.error) return data.error;
+      const code = res.status;
+      if (code === 404) return "The server has no /api/transcribe route (HTTP 404). Update server.js, then restart the server or redeploy.";
+      if (code === 413) return "The file is too large for this server (HTTP 413). On Vercel the limit is about 4.5 MB.";
+      if (code === 504) return "The request timed out (HTTP 504). Try a shorter recording.";
+      if (code >= 500) return "The server crashed (HTTP " + code + "). Check the server logs, and confirm the new packages are installed or deployed.";
+      return "Transcription failed (HTTP " + code + "). Open the browser's Network tab to see the response.";
+    }
+
+    async function transcribe(file) {
+      const ext = file.name.slice(file.name.lastIndexOf(".")).toLowerCase();
+      if (!AUDIO_EXTS.includes(ext)) {
+        showFile(file, "Not added", true);
+        return setStatus("Unsupported file type. Use " + AUDIO_EXTS.join(", ") + ".", true);
+      }
+      if (file.size > MAX_AUDIO_MB * 1024 * 1024) {
+        showFile(file, "Not added", true);
+        return setStatus("File is too large. The limit is " + MAX_AUDIO_MB + " MB.", true);
+      }
+
+      // Show the file and let the user play it back, so it's clear it was added.
+      if (audioUrl) URL.revokeObjectURL(audioUrl);
+      audioUrl = URL.createObjectURL(file);
+      player.src = audioUrl;
+      showFile(file, "Added, transcribing…");
+
+      uploadBtn.disabled = true;
+      go.disabled = true;
+      uploadBtn.innerHTML = '<span class="spinner"></span>Transcribing…';
+      setStatus("Transcribing " + file.name + "…");
+
+      try {
+        const form = new FormData();
+        form.append("audio", file);
+        const res = await fetch("/api/transcribe", { method: "POST", body: form });
+        const data = await res.json().catch(() => null);
+        if (!res.ok) throw new Error(explainFailure(res, data));
+        transcript.value = data.transcript;
+        const words = data.transcript.split(/\s+/).filter(Boolean).length;
+        showFile(file, "Transcribed ✓");
+        setStatus("Transcript added below (" + words + " words). Review it, then click Summarize call.");
+      } catch (err) {
+        showFile(file, "Failed", true);
+        setStatus(err.message, true);
+      } finally {
+        uploadBtn.textContent = "Upload audio";
+        uploadBtn.disabled = false;
+        audioInput.value = ""; // allow re-selecting the same file
+        updateState();
+      }
+    }
+
+    uploadBtn.addEventListener("click", () => audioInput.click());
+    audioInput.addEventListener("change", () => {
+      if (audioInput.files[0]) transcribe(audioInput.files[0]);
     });
 
     updateState();
