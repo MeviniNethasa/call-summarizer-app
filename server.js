@@ -117,6 +117,12 @@ app.post("/api/summarize", async (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`Call Summarizer running at http://localhost:${PORT}`);
-});
+// Run a normal server locally (`npm start`). On Vercel the app is imported by
+// api/index.js and run as a serverless function, so we must not listen there.
+if (require.main === module) {
+  app.listen(PORT, () => {
+    console.log(`Call Summarizer running at http://localhost:${PORT}`);
+  });
+}
+
+module.exports = app;
